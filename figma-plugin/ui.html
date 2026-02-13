@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 12px;
+      color: #333;
+      padding: 16px;
+      background: #fff;
+    }
+
+    h2 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #1a1a1a;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    .step-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafafa;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #5B5BF0;
+      background: #F0F0FF;
+    }
+    .drop-zone.loaded {
+      border-color: #2DB84B;
+      background: #F0FFF4;
+      border-style: solid;
+    }
+    .drop-zone p { margin: 4px 0; }
+    .drop-zone .main-text { font-size: 13px; font-weight: 500; color: #555; }
+    .drop-zone .sub-text { font-size: 11px; color: #999; }
+    .drop-zone .file-name { font-size: 12px; font-weight: 600; color: #2DB84B; }
+
+    input[type="file"] { display: none; }
+
+    /* Preview table */
+    .preview-container {
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    th {
+      background: #f5f5f5;
+      font-weight: 600;
+      text-align: left;
+      padding: 6px 8px;
+      position: sticky;
+      top: 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tr:hover td { background: #f8f8ff; }
+
+    /* Summary */
+    .summary {
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: #666;
+      line-height: 1.6;
+    }
+    .summary strong { color: #333; }
+
+    /* Buttons */
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: #5B5BF0;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #4A4AE0; }
+    .btn-primary:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    /* Status */
+    .status {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      display: none;
+    }
+    .status.info { display: block; background: #EEF1FF; color: #5B5BF0; }
+    .status.success { display: block; background: #F0FFF4; color: #2DB84B; }
+    .status.error { display: block; background: #FFF0F0; color: #D44; }
+
+    /* Progress */
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #eee;
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar.active { display: block; }
+    .progress-fill {
+      height: 100%;
+      background: #5B5BF0;
+      border-radius: 2px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🌐 Batch Localizer</h2>
+
+  <!-- Step 1: Upload CSV -->
+  <div class="section">
+    <div class="step-label">Step 1 — Upload CSV</div>
+    <div class="drop-zone" id="dropZone">
+      <p class="main-text">Drop CSV here or click to browse</p>
+      <p class="sub-text">Same format as your AE script</p>
+    </div>
+    <input type="file" id="fileInput" accept=".csv" />
+  </div>
+
+  <!-- Step 2: Preview -->
+  <div class="section" id="previewSection" style="display:none;">
+    <div class="step-label">Step 2 — Preview</div>
+    <div class="summary" id="summary"></div>
+    <div class="preview-container">
+      <table id="previewTable"></table>
+    </div>
+  </div>
+
+  <!-- Step 3: Run -->
+  <div class="section">
+    <div class="step-label">Step 3 — Select a frame & run</div>
+    <button class="btn btn-primary" id="runBtn" disabled>Generate Localized Versions</button>
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+  // ─── CSV PARSING ───
+
+  function parseCSVLine(line) {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+    const headers = parseCSVLine(lines[0]).map(h => h.trim());
+    const rows = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      const row = {};
+      headers.forEach((h, j) => {
+        row[h] = (j < values.length) ? values[j].trim() : "";
+      });
+      rows.push(row);
+    }
+
+    return { headers, rows };
+  }
+
+  const RESERVED = ["layer_name", "type"];
+
+  function detectLanguages(headers) {
+    return headers.filter(h => {
+      const lower = h.toLowerCase();
+      return !RESERVED.includes(lower) && h !== "";
+    });
+  }
+
+  // ─── STATE ───
+  let csvData = null;
+  let languages = [];
+
+  // ─── UI ELEMENTS ───
+  const dropZone = document.getElementById("dropZone");
+  const fileInput = document.getElementById("fileInput");
+  const previewSection = document.getElementById("previewSection");
+  const previewTable = document.getElementById("previewTable");
+  const summary = document.getElementById("summary");
+  const runBtn = document.getElementById("runBtn");
+  const status = document.getElementById("status");
+  const progressBar = document.getElementById("progressBar");
+  const progressFill = document.getElementById("progressFill");
+
+  // ─── FILE HANDLING ───
+
+  dropZone.addEventListener("click", () => fileInput.click());
+
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragover");
+  });
+
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+  });
+
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files.length > 0) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file) {
+    if (!file.name.endsWith(".csv")) {
+      showStatus("Please select a CSV file.", "error");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        csvData = parseCSV(e.target.result);
+        languages = detectLanguages(csvData.headers);
+
+        if (languages.length === 0) {
+          showStatus("No language columns found. Expected columns beyond: layer_name, type", "error");
+          return;
+        }
+
+        // Update drop zone
+        dropZone.classList.add("loaded");
+        dropZone.innerHTML = `
+          <p class="file-name">✓ ${file.name}</p>
+          <p class="sub-text">${csvData.rows.length} rows · ${languages.length} languages</p>
+        `;
+
+        // Show preview
+        buildPreview();
+        previewSection.style.display = "block";
+        runBtn.disabled = false;
+        showStatus("", "");
+
+      } catch (err) {
+        showStatus("Error parsing CSV: " + err.message, "error");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function buildPreview() {
+    // Summary
+    const layerNames = [...new Set(csvData.rows.map(r => r["layer_name"]))];
+    summary.innerHTML = `
+      <strong>Layers:</strong> ${layerNames.join(", ")}<br>
+      <strong>Languages:</strong> ${languages.join(", ")}<br>
+      <strong>Will create:</strong> ${languages.length} duplicated frame(s)
+    `;
+
+    // Table
+    let html = "<thead><tr><th>Layer</th><th>Type</th>";
+    // Show first 3 languages max in preview
+    const previewLangs = languages.slice(0, 3);
+    previewLangs.forEach(l => { html += `<th>${l}</th>`; });
+    if (languages.length > 3) html += `<th>+${languages.length - 3} more</th>`;
+    html += "</tr></thead><tbody>";
+
+    csvData.rows.forEach(row => {
+      html += `<tr><td>${row["layer_name"] || ""}</td><td>${row["type"] || "text"}</td>`;
+      previewLangs.forEach(l => {
+        const val = row[l] || "";
+        html += `<td title="${val}">${val.substring(0, 20)}${val.length > 20 ? "…" : ""}</td>`;
+      });
+      if (languages.length > 3) html += "<td>…</td>";
+      html += "</tr>";
+    });
+
+    html += "</tbody>";
+    previewTable.innerHTML = html;
+  }
+
+  // ─── RUN ───
+
+  runBtn.addEventListener("click", () => {
+    if (!csvData) return;
+
+    runBtn.disabled = true;
+    progressBar.classList.add("active");
+    progressFill.style.width = "10%";
+    showStatus("Working... Duplicating frames and replacing text.", "info");
+
+    // Send data to plugin code
+    parent.postMessage({
+      pluginMessage: {
+        type: "run-localization",
+        headers: csvData.headers,
+        rows: csvData.rows,
+        languages: languages
+      }
+    }, "*");
+  });
+
+  // ─── MESSAGES FROM PLUGIN ───
+
+  window.onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === "progress") {
+      progressFill.style.width = msg.percent + "%";
+    }
+
+    if (msg.type === "complete") {
+      progressFill.style.width = "100%";
+      const stats = msg.stats;
+      let statusMsg = `✓ Done! ${stats.languages} languages · ${stats.success} replacements`;
+      if (stats.errors > 0) {
+        statusMsg += ` · ${stats.errors} errors`;
+        if (msg.errorLog && msg.errorLog.length > 0) {
+          statusMsg += "\n\nErrors:\n" + msg.errorLog.join("\n");
+        }
+      }
+      showStatus(statusMsg, stats.errors > 0 ? "error" : "success");
+      runBtn.disabled = false;
+      setTimeout(() => { progressBar.classList.remove("active"); }, 1000);
+    }
+
+    if (msg.type === "error") {
+      showStatus("Error: " + msg.message, "error");
+      runBtn.disabled = false;
+      progressBar.classList.remove("active");
+    }
+  };
+
+  function showStatus(message, type) {
+    status.className = "status";
+    if (type && message) {
+      status.className = "status " + type;
+      status.textContent = message;
+    }
+  }
+</script>
+
+</body>
+</html>
